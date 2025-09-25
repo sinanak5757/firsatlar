@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hepsiburada Fiyat Fırsatları</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f0f2f5;
+            color: #1c1e21;
+            margin: 0;
+            padding: 40px;
+        }
+        .container {
+            max-width: 1200px;
+            min-width: 600px;
+            margin: 0 auto;
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+            padding: 40px 40px 30px 40px;
+        }
+        h1 {
+            font-size: 32px;
+            color: #1877f2;
+            border-bottom: 1px solid #dddfe2;
+            padding-bottom: 16px;
+            margin-bottom: 32px;
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 24px;
+            align-items: center;
+            margin-bottom: 32px;
+        }
+        .control-item {
+            display: flex;
+            flex-direction: column;
+        }
+        .control-item label {
+            margin-bottom: 8px;
+            font-weight: 500;
+            font-size: 16px;
+        }
+        .controls input, .controls select {
+            padding: 14px;
+            border: 1px solid #ddd;
+            border-radius: 7px;
+            font-size: 18px;
+        }
+        .controls button {
+            padding: 16px 0;
+            border: none;
+            border-radius: 7px;
+            font-size: 18px;
+            color: #fff;
+            cursor: pointer;
+            width: 100%;
+        }
+        #start-btn { background-color: #28a745; }
+        #stop-btn { background-color: #dc3545; }
+        #status {
+            font-weight: bold;
+            grid-column: 1 / -1;
+            text-align: center;
+            margin-top: 18px;
+            font-size: 20px;
+        }
+        .product-list { list-style: none; padding: 0; }
+        .product-item {
+            border: 1px solid #dddfe2;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: box-shadow 0.2s;
+        }
+        .product-item:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+        .product-title {
+            font-size: 22px;
+            font-weight: 600;
+            color: #050505;
+        }
+        .product-link { text-decoration: none; color: inherit; }
+        .price-info {
+            margin-top: 14px;
+            font-size: 18px;
+        }
+        .price-hepsiburada { color: #28a745; font-weight: bold; }
+        .price-competitor { color: #dc3545; text-decoration: line-through; }
+        .price-diff {
+            display: inline-block;
+            background-color: #1877f2;
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 7px;
+            font-size: 16px;
+            font-weight: bold;
+            margin-left: 14px;
+        }
+        .no-products {
+            text-align: center;
+            font-size: 20px;
+            color: #65676b;
+            padding: 50px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Akakçe - Hepsiburada Fırsat Ürünleri</h1>
+        
+        <div class="controls">
+            <div class="control-item">
+                <label for="category">Kategori:</label>
+                <select id="category">
+                    {% for name, path in categories.items() %}
+                        <option value="{{ path }}">{{ name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="control-item">
+                <label for="discount">İndirim Oranı (%):</label>
+                <input type="number" id="discount" value="10" min="1">
+            </div>
+            <div class="control-item">
+                <label for="page-limit">Sayfa Sayısı:</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="number" id="page-limit" value="5" min="1" style="flex:1;">
+                    <label style="font-size:13px;">
+                        <input type="checkbox" id="all-pages"> Tüm Sayfaları Tara
+                    </label>
+                </div>
+            </div>
+            <div class="control-item">
+                <label>&nbsp;</label>
+                <button id="start-btn">Taramayı Başlat</button>
+            </div>
+            <div class="control-item">
+                <label>&nbsp;</label>
+                <button id="stop-btn">Taramayı Durdur</button>
+            </div>
+            <span id="status">Durum: Beklemede</span>
+        </div>
+
+        <div id="results">
+            <ul class="product-list" id="product-list-container"></ul>
+            <p class="no-products" id="no-products-message" style="display: none;">Belirtilen kriterlere uygun ürün bulunamadı.</p>
+        </div>
+    </div>
+
+    <script>
+        // Tüm sayfaları tara seçeneği
+        const allPagesCheckbox = document.getElementById('all-pages');
+        allPagesCheckbox.addEventListener('change', function() {
+            pageLimitInput.disabled = this.checked;
+        });
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const categorySelect = document.getElementById('category');
+        const discountInput = document.getElementById('discount');
+        const pageLimitInput = document.getElementById('page-limit');
+        const statusEl = document.getElementById('status');
+        const productListContainer = document.getElementById('product-list-container');
+        const noProductsMessage = document.getElementById('no-products-message');
+        let statusInterval;
+
+        async function updateStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                let statusText = `Durum: ${data.status}`;
+                if (data.status === 'running') {
+                    statusText += ` (${data.progress}%)`;
+                }
+                statusEl.textContent = statusText;
+
+                if (data.status === 'idle' || data.status === 'stopped') {
+                    clearInterval(statusInterval);
+                    fetchResults();
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                }
+            } catch (error) {
+                console.error('Durum güncellenirken hata:', error);
+                statusEl.textContent = 'Durum: Hata';
+                clearInterval(statusInterval);
+            }
+        }
+
+        async function fetchResults() {
+            try {
+                const response = await fetch('/results');
+                const data = await response.json();
+                renderProducts(data.products);
+            } catch (error) {
+                console.error('Sonuçlar alınırken hata:', error);
+            }
+        }
+
+        function renderProducts(products) {
+            productListContainer.innerHTML = '';
+            if (products.length === 0) {
+                noProductsMessage.style.display = 'block';
+            } else {
+                noProductsMessage.style.display = 'none';
+                products.forEach(product => {
+                    const item = document.createElement('li');
+                    item.className = 'product-item';
+                    item.innerHTML = `
+                        <a href="${product.url}" target="_blank" class="product-link">
+                            <div class="product-title">${product.title}</div>
+                            <div class="price-info">
+                                <span class="price-hepsiburada">${product.hepsiburada_price.toFixed(2)} TL</span>
+                                <span class="price-competitor">${product.competitor_price.toFixed(2)} TL</span>
+                                <span class="price-diff">%${product.diff_percent} daha ucuz!</span>
+                            </div>
+                        </a>
+                    `;
+                    productListContainer.appendChild(item);
+                });
+            }
+        }
+
+        startBtn.addEventListener('click', async () => {
+            const formData = new FormData();
+            formData.append('category', categorySelect.value);
+            formData.append('discount', discountInput.value);
+            formData.append('page_limit', allPagesCheckbox.checked ? -1 : pageLimitInput.value);
+
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            statusEl.textContent = 'Durum: Başlatılıyor...';
+            productListContainer.innerHTML = '';
+            noProductsMessage.style.display = 'none';
+
+            try {
+                const response = await fetch('/scrape', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    statusInterval = setInterval(updateStatus, 2000);
+                } else {
+                    statusEl.textContent = `Hata: ${data.message}`;
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                }
+            } catch (error) {
+                console.error('Tarama başlatılırken hata:', error);
+                statusEl.textContent = 'Durum: Başlatma Hatası';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        });
+
+        stopBtn.addEventListener('click', async () => {
+            try {
+                await fetch('/stop', { method: 'POST' });
+                statusEl.textContent = 'Durum: Durduruluyor...';
+                stopBtn.disabled = true;
+            } catch (error) {
+                console.error('Tarama durdurulurken hata:', error);
+            }
+        });
+        
+        stopBtn.disabled = true;
+    </script>
+</body>
+</html>
